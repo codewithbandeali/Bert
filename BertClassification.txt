@@ -1,0 +1,71 @@
+import torch
+from transformers import BertTokenizer, BertForSequenceClassification
+
+# Load pre-trained tokenizer and model
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=3)
+
+# Define an example input sequence (text) for the chatbot
+input_text = "What's the weather like today?"
+# Tokenize the input text
+input_ids = tokenizer(input_text, return_tensors='pt').to('cuda')
+
+# Generate predictions for each task
+outputs = model(input_ids)
+task1_logits = outputs[0]  # Logits for task 1 (e.g., intent classification)
+task2_logits = outputs[1]  # Logits for task 2 (e.g., sentiment analysis)
+# Calculate softmax probabilities for each task
+task1_probs = torch.softmax(task1_logits, dim=-1)
+task2_probs = torch.softmax(task2_logits, dim=-1)
+
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.neighbors import MultiOutputClassifier
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.preprocessing import MultiLabelBinarizer
+
+# Assume X is a matrix of input features, y is a matrix of labels
+# Each row in y represents a sample, each column represents a label
+# Split the data into training and test sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+
+# Convert y_train and y_test to binary matrices
+mlb = MultiLabelBinarizer()
+y_train_bin = mlb.fit_transform(y_train)
+y_test_bin = mlb.transform(y_test)
+
+# Define base classifiers for Binary Relevance and Classifier Chains
+base_classifiers = [LogisticRegression(), RandomForestClassifier()]
+
+# Implement Binary Relevance (BR)
+br_log_reg = MultiOutputClassifier(OneVsRestClassifier(LogisticRegression()))
+br_log_reg.fit(X_train, y_train_bin)
+y_pred_br_log_reg = mlb.inverse_transform(br_log_reg.predict(X_test))
+
+# Implement Classifier Chains (CC)
+cc_log_reg = MultiOutputClassifier(OneVsRestClassifier(ClassifierChain(base_classifiers)))
+cc_log_reg.fit(X_train, y_train_bin)
+y_pred_cc_log_reg = mlb.inverse_transform(cc_log_reg.predict(X_test))
+
+# Implement Label Powerset (LP)
+rf = OneVsRestClassifier(RandomForestClassifier())
+rf.fit(X_train, y_train_bin)
+y_pred_rf = mlb.inverse_transform(rf.predict(X_test))
+
+# Implement Random Forests (RF) for multi-label classification
+rf_ml = MultiOutputClassifier(RandomForestClassifier())
+rf_ml.fit(X_train, y_train_bin)
+y_pred_rf_ml = mlb.inverse_transform(rf_ml.predict(X_test))
+
+# Evaluate the models by calculating the average F1-score
+cv_results_br_log_reg = cross_val_score(br_log_reg, X_train, y_train_bin, cv=5, scoring='f1_macro')
+cv_results_cc_log_reg = cross_val_score(cc_log_reg, X_train, y_train_bin, cv=5, scoring='f1_macro')
+cv_results_rf = cross_val_score(rf, X_train, y_train_bin, cv=5, scoring='f1_macro')
+cv_results_rf_ml = cross_val_score(rf_ml, X_train, y_train_bin, cv=5, scoring='f1_macro')
+
+print("Average F1-score for BR Logistic Regression:", cv_results_br_log_reg.mean())
+print("Average F1-score for CC Logistic Regression:", cv_results_cc_log_reg.mean())
+print("Average F1-score for LP Random Forest:", cv_results_rf.mean())
+print("Average F1-score for RF Multi-Label:", cv_results_rf_ml.mean())
